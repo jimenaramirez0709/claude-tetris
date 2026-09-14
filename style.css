@@ -397,6 +397,100 @@ kbd {
   flex-direction: column;
   gap: 12px;
   align-items: center;
+  width: min(90%, 340px);
+  max-height: 92%;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.overlay-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  width: 100%;
+}
+
+.overlay-panel.hidden {
+  display: none;
+}
+
+.overlay-heading {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: var(--title-color);
+  text-align: center;
+}
+
+/* ---- Botones y selects genéricos del overlay (menú de pausa / controles) ---- */
+.menu-btn {
+  background: var(--switch-bg);
+  color: var(--text);
+  border: 1px solid var(--switch-border);
+  border-radius: 6px;
+  padding: 9px 20px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.menu-btn:hover {
+  border-color: var(--title-color);
+}
+
+.menu-btn-primary {
+  background: var(--restart-bg);
+  color: var(--restart-text);
+  border-color: transparent;
+}
+
+.menu-btn-primary:hover {
+  background: var(--restart-hover);
+}
+
+.menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+}
+
+.menu-label {
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--label-color);
+  font-weight: 600;
+}
+
+.menu-select {
+  background: var(--kbd-bg);
+  color: var(--text);
+  border: 1px solid var(--kbd-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+/* ---- Lista de controles dentro del overlay (panel "Ver controles") ---- */
+.overlay-controls-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: center;
+}
+
+.overlay-controls-list li {
+  font-size: 13px;
+  color: var(--control-text);
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 #overlay-title {
