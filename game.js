@@ -69,6 +69,11 @@ const CHALLENGE_TIME_MS = 120000;        // 2 minutos
 const CHALLENGE_WARN_MS = 30000;         // umbral de aviso en el HUD
 const CHALLENGE_CRITICAL_MS = 10000;     // umbral crítico en el HUD
 
+// ---- Records locales ----
+const SCORES_STORAGE_KEY = 'tetris-scores';
+const LAST_NAME_STORAGE_KEY = 'tetris-last-name';
+const TOP_SCORES_MAX = 5;
+
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
 const nextCanvas = document.getElementById('next-canvas');
@@ -93,13 +98,34 @@ const timerSection = document.getElementById('timer-section');
 const energySection = document.getElementById('energy-section');
 const energyFillEl = document.getElementById('energy-fill');
 
+// ---- Pantalla de inicio / panel de resultado / records ----
+const panelStart = document.getElementById('panel-start');
+const panelResult = document.getElementById('panel-result');
+const playBtn = document.getElementById('play-btn');
+const startModeSelect = document.getElementById('start-mode-select');
+const startResetRecordsBtn = document.getElementById('start-reset-records-btn');
+const startRecordsMode = document.getElementById('start-records-mode');
+const startRecordsList = document.getElementById('start-records-list');
+const startBestCombo = document.getElementById('start-best-combo');
+const startBestLines = document.getElementById('start-best-lines');
+const newRecordBox = document.getElementById('new-record-box');
+const newRecordText = document.getElementById('new-record-text');
+const newRecordForm = document.getElementById('new-record-form');
+const playerNameInput = document.getElementById('player-name-input');
+const resultRecordsList = document.getElementById('result-records-list');
+const resultBestCombo = document.getElementById('result-best-combo');
+const resultBestLines = document.getElementById('result-best-lines');
+
 const THEME_STORAGE_KEY = 'tetris-theme';
 
 let board, holes, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 let linesUntilBomb, blast, animClock;
-let combo, comboFx;
+let combo, comboFx, maxCombo;
 let energy, energyReady, energyFx, lastEnergyPct;
 let mode, timeLeft, challengeWon, lastTimerText;
+let started;         // false mientras se muestra la pantalla de inicio (aún no hay partida en curso)
+let scores;           // { classic: {top:[...], bestCombo, bestLines}, challenge: {...} }
+let pendingRecord;    // entrada de la partida que acaba de terminar, a la espera del nombre (o null)
 
 // ---- Efectos visuales (solo render: nunca participan en colisiones ni puntuación) ----
 let particles;  // [] { x, y, vx, vy, life, maxLife, color, size }
@@ -360,6 +386,14 @@ function bombInterval() {
   return BOMB_MIN_LINES + Math.floor(Math.random() * (BOMB_MAX_LINES - BOMB_MIN_LINES + 1));
 }
 
+// true si el evento de teclado viene de un campo de texto/selector (nombre del jugador, modo):
+// evita que KeyM/KeyP/KeyC disparen mientras se está tecleando.
+function isTyping(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || el.isContentEditable;
+}
+
 function makePiece(type) {
   const shape = PIECES[type].map(row => [...row]);
   return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
@@ -442,6 +476,7 @@ function clearLines(neutralTurn) {
   if (cleared) {
     const prevLevel = level;
     combo++;
+    if (combo > maxCombo) maxCombo = combo;
     lines += cleared;
     linesUntilBomb -= cleared;
     score += (LINE_SCORES[cleared] || 0) * level * comboMultiplier();
@@ -870,7 +905,7 @@ function draw() {
     ctx.restore();
   }
 
-  if (gameOver) { ctx.restore(); return; }
+  if (gameOver || !current) { ctx.restore(); return; } // !current: pantalla de inicio, aún no hay pieza
 
   // ghost
   const gy = ghostY();
@@ -892,6 +927,7 @@ function draw() {
 function drawNext() {
   const NB = 30;
   nextCtx.clearRect(0, 0, nextCanvas.width, nextCanvas.height);
+  if (!next) return; // pantalla de inicio: aún no hay pieza "next" que previsualizar
   if (next.type === BOMB) {
     drawBomb(nextCtx, 0.5, 0.5, 60);
     return;
@@ -903,6 +939,118 @@ function drawNext() {
     for (let c = 0; c < shape[r].length; c++)
       drawBlock(nextCtx, offX + c, offY + r, shape[r][c], NB);
   if (next.type === NUT) drawNutHole(nextCtx, offX + 1, offY + 1, NB);
+}
+
+// ---------------------------------------------------------------------------
+// Records locales: top-5 por modo (clásico/desafío son partidas distintas) + el mejor
+// combo y el máximo de líneas conseguidos alguna vez, que viven fuera del top-5 porque
+// una racha récord puede darse en una partida que no entra en la tabla de puntuación.
+// Persistido como JSON en localStorage; es el primer JSON.parse del archivo, así que va
+// envuelto en try/catch — un valor corrupto no debe romper el arranque.
+// ---------------------------------------------------------------------------
+
+function emptyScores() {
+  return {
+    classic: { top: [], bestCombo: 0, bestLines: 0 },
+    challenge: { top: [], bestCombo: 0, bestLines: 0 },
+  };
+}
+
+function loadScores() {
+  try {
+    const raw = localStorage.getItem(SCORES_STORAGE_KEY);
+    if (!raw) return emptyScores();
+    const parsed = JSON.parse(raw);
+    const base = emptyScores();
+    for (const m of ['classic', 'challenge']) {
+      const src = parsed && parsed[m];
+      if (!src) continue;
+      if (Array.isArray(src.top)) base[m].top = src.top.slice(0, TOP_SCORES_MAX);
+      if (Number.isFinite(src.bestCombo)) base[m].bestCombo = src.bestCombo;
+      if (Number.isFinite(src.bestLines)) base[m].bestLines = src.bestLines;
+    }
+    return base;
+  } catch {
+    return emptyScores(); // localStorage con JSON corrupto: seguir con la tabla vacía en vez de romper el arranque
+  }
+}
+
+function saveScores() {
+  localStorage.setItem(SCORES_STORAGE_KEY, JSON.stringify(scores));
+}
+
+function initRecords() {
+  scores = loadScores();
+}
+
+function resetRecords() {
+  scores = emptyScores();
+  saveScores();
+  renderRecords();
+}
+
+// Registra los máximos "de siempre" y decide si la partida entra en el top-5 de su modo.
+// Devuelve el índice donde entraría (el número de entradas actuales con score >= la nueva,
+// que es exactamente su posición tras el sort descendente de insertScore()), o -1 si no
+// entra. Los máximos se guardan YA, entren o no en el top-5, para no perder una racha o un
+// total de líneas récord de una partida floja.
+function submitRun({ score, lines, combo }) {
+  const bucket = scores[mode];
+  if (combo > bucket.bestCombo) bucket.bestCombo = combo;
+  if (lines > bucket.bestLines) bucket.bestLines = lines;
+  saveScores();
+  if (bucket.top.length >= TOP_SCORES_MAX && score <= bucket.top[bucket.top.length - 1].score) return -1;
+  let rank = 0;
+  while (rank < bucket.top.length && bucket.top[rank].score >= score) rank++;
+  return rank;
+}
+
+function insertScore(entry) {
+  const bucket = scores[mode];
+  bucket.top.push(entry);
+  bucket.top.sort((a, b) => b.score - a.score);
+  bucket.top.length = Math.min(bucket.top.length, TOP_SCORES_MAX);
+  saveScores();
+  localStorage.setItem(LAST_NAME_STORAGE_KEY, entry.name);
+}
+
+// Escapa el nombre del jugador antes de inyectarlo vía innerHTML: viene de localStorage
+// (leído en cada arranque/cambio de modo), y aunque el formulario lo trunca a 8 caracteres,
+// no hay que asumir que ese valor no pueda contener '<'/'>'/'&' si el storage se edita a mano.
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderList(listEl, top, highlightRank) {
+  listEl.innerHTML = '';
+  if (!top.length) {
+    const li = document.createElement('li');
+    li.className = 'records-empty';
+    li.textContent = 'Sin puntuaciones todavía';
+    listEl.appendChild(li);
+    return;
+  }
+  top.forEach((entry, i) => {
+    const li = document.createElement('li');
+    li.className = 'record-row' + (i === highlightRank ? ' record-new' : '');
+    li.innerHTML = `<span class="record-rank">${i + 1}</span>` +
+      `<span class="record-name">${escapeHtml(entry.name)}</span>` +
+      `<span class="record-score">${entry.score.toLocaleString()}</span>` +
+      `<span class="record-detail">L${entry.level} · ${entry.lines}L</span>`;
+    listEl.appendChild(li);
+  });
+}
+
+// highlightRank: fila a resaltar en el panel de resultado justo después de guardar el nombre.
+function renderRecords(highlightRank = -1) {
+  const bucket = scores[mode];
+  startRecordsMode.textContent = mode === MODE_CHALLENGE ? 'DESAFÍO' : 'CLÁSICO';
+  renderList(startRecordsList, bucket.top, -1);
+  startBestCombo.textContent = 'x' + bucket.bestCombo;
+  startBestLines.textContent = bucket.bestLines;
+  renderList(resultRecordsList, bucket.top, highlightRank);
+  resultBestCombo.textContent = 'x' + bucket.bestCombo;
+  resultBestLines.textContent = bucket.bestLines;
 }
 
 function stopRun() {
@@ -917,7 +1065,27 @@ function showOverlay(title, detail, won) {
   overlayTitle.textContent = title;
   overlayTitle.classList.toggle('overlay-win', !!won);
   overlayScore.textContent = detail;
+  panelStart.classList.add('hidden');
+  panelResult.classList.remove('hidden');
   overlay.classList.remove('hidden');
+}
+
+// Común a endGame()/finishChallenge(): actualiza mejor-combo/máx-líneas, decide si la
+// partida entra en el top-5 y muestra (o no) el formulario de nombre.
+function offerRecord() {
+  const rank = submitRun({ score, lines, combo: maxCombo });
+  if (rank === -1) {
+    newRecordBox.classList.add('hidden');
+    pendingRecord = null;
+    renderRecords();
+    return;
+  }
+  pendingRecord = { entry: { score, lines, level, combo: maxCombo }, rank };
+  newRecordText.textContent = `¡Entras en el top ${TOP_SCORES_MAX} (puesto ${rank + 1})!`;
+  playerNameInput.value = localStorage.getItem(LAST_NAME_STORAGE_KEY) || '';
+  newRecordBox.classList.remove('hidden');
+  renderRecords();
+  setTimeout(() => playerNameInput.focus(), 0); // tras quitar `hidden`, para que el campo ya sea focuseable
 }
 
 function endGame() {
@@ -925,6 +1093,7 @@ function endGame() {
   stopRun();
   SFX.gameOver();
   showOverlay('GAME OVER', `Puntuación: ${score.toLocaleString()}`, false);
+  offerRecord();
 }
 
 function finishChallenge(won) {
@@ -939,6 +1108,7 @@ function finishChallenge(won) {
     showOverlay('¡TIEMPO!', `${lines} / ${CHALLENGE_LINES} líneas · ${score.toLocaleString()} pts`, false);
   }
   updateTimer();
+  offerRecord();
 }
 
 function togglePause() {
@@ -988,7 +1158,10 @@ function loop(ts) {
   animId = requestAnimationFrame(loop);
 }
 
-function init() {
+// Resetea todo el estado de una partida (tablero, score, combo, energía, efectos…) sin
+// arrancar el loop ni tocar el overlay. Usado tanto por init() (empezar a jugar) como por
+// showStartScreen() (dejar todo en cero detrás de la pantalla de inicio).
+function resetRunState() {
   board = createBoard();
   holes = createBoard();
   score = 0;
@@ -1003,6 +1176,7 @@ function init() {
   blast = null;
   animClock = 0;
   combo = 0;
+  maxCombo = 0;
   comboFx = null;
   energy = 0;
   energyReady = false;
@@ -1015,6 +1189,13 @@ function init() {
   timeLeft = CHALLENGE_TIME_MS;
   challengeWon = false;
   lastTimerText = '';
+  pendingRecord = null;
+  newRecordBox.classList.add('hidden');
+}
+
+function init() {
+  resetRunState();
+  started = true;
   next = randomPiece();
   spawn();
   updateHUD();
@@ -1024,7 +1205,27 @@ function init() {
   animId = requestAnimationFrame(loop);
 }
 
+// Pantalla de inicio: tablero vacío de fondo, records + selector de modo, sin loop corriendo.
+function showStartScreen() {
+  resetRunState();
+  started = false;
+  gameOver = true; // reutiliza los guards existentes (draw(), keydown…) para bloquear el juego
+  current = null;
+  next = null;
+  cancelAnimationFrame(animId);
+  animId = null;
+  drawNext();
+  draw();
+  updateHUD();
+  startModeSelect.value = mode;
+  renderRecords();
+  panelResult.classList.add('hidden');
+  panelStart.classList.remove('hidden');
+  overlay.classList.remove('hidden');
+}
+
 document.addEventListener('keydown', e => {
+  if (isTyping(e.target)) return; // no interceptar mientras se teclea un nombre o se usa un <select> del overlay
   unlockAudio(); // toda tecla es un gesto de usuario válido para desbloquear el audio
   if (e.code === 'KeyM') { setMuted(!muted); return; } // funciona incluso en pausa/game-over, como KeyP
   if (e.code === 'KeyP') { togglePause(); return; }
@@ -1090,11 +1291,18 @@ function initMode() {
   applyMode(saved === MODE_CHALLENGE ? MODE_CHALLENGE : MODE_CLASSIC);
 }
 
+// Único punto que cambia `mode`: reinicia la partida en curso, o si aún no se ha jugado
+// (pantalla de inicio), se limita a refrescar esa pantalla para el nuevo modo (sus records
+// son distintos de los del otro modo).
+function setMode(m) {
+  localStorage.setItem(MODE_STORAGE_KEY, m);
+  applyMode(m);
+  if (started) init(); // cambiar de modo reinicia la partida
+  else showStartScreen();
+}
+
 function toggleMode() {
-  const next = mode === MODE_CHALLENGE ? MODE_CLASSIC : MODE_CHALLENGE;
-  localStorage.setItem(MODE_STORAGE_KEY, next);
-  applyMode(next);
-  init(); // cambiar de modo reinicia la partida
+  setMode(mode === MODE_CHALLENGE ? MODE_CLASSIC : MODE_CHALLENGE);
 }
 
 modeToggle.addEventListener('click', () => {
@@ -1103,7 +1311,38 @@ modeToggle.addEventListener('click', () => {
   toggleMode();
 });
 
+startModeSelect.addEventListener('change', () => { unlockAudio(); setMode(startModeSelect.value); });
+
+// ---------------------------------------------------------------------------
+// Pantalla de inicio: botón JUGAR y reseteo de records.
+// ---------------------------------------------------------------------------
+
+playBtn.addEventListener('click', () => { unlockAudio(); playBtn.blur(); init(); });
+
+startResetRecordsBtn.addEventListener('click', () => {
+  unlockAudio();
+  startResetRecordsBtn.blur();
+  if (confirm('¿Borrar todos los records guardados?')) resetRecords();
+});
+
+// ---------------------------------------------------------------------------
+// Formulario de nombre al entrar en el top-5.
+// ---------------------------------------------------------------------------
+
+newRecordForm.addEventListener('submit', e => {
+  e.preventDefault();
+  if (!pendingRecord) return;
+  const name = playerNameInput.value.trim().toUpperCase().slice(0, 8) || '---';
+  insertScore({ ...pendingRecord.entry, name });
+  newRecordBox.classList.add('hidden');
+  renderRecords(pendingRecord.rank);
+  pendingRecord = null;
+});
+
+resetRunState(); // board/holes/particles/etc. deben existir antes del primer draw() de showStartScreen()
+
 initTheme();
 initSound();
 initMode();
-init();
+initRecords();
+showStartScreen();
