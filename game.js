@@ -92,14 +92,18 @@ const timerEl = document.getElementById('timer');
 const timerSection = document.getElementById('timer-section');
 const energySection = document.getElementById('energy-section');
 const energyFillEl = document.getElementById('energy-fill');
+const skinSelect = document.getElementById('skin-select');
 
 const THEME_STORAGE_KEY = 'tetris-theme';
+const SKIN_STORAGE_KEY = 'tetris-skin';
+const DEFAULT_SKIN = 'retro';
 
 let board, holes, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
 let linesUntilBomb, blast, animClock;
 let combo, comboFx;
 let energy, energyReady, energyFx, lastEnergyPct;
 let mode, timeLeft, challengeWon, lastTimerText;
+let skin;
 
 // ---- Efectos visuales (solo render: nunca participan en colisiones ni puntuación) ----
 let particles;  // [] { x, y, vx, vy, life, maxLife, color, size }
@@ -360,6 +364,21 @@ function bombInterval() {
   return BOMB_MIN_LINES + Math.floor(Math.random() * (BOMB_MAX_LINES - BOMB_MIN_LINES + 1));
 }
 
+// true si el evento de teclado viene de un campo de texto/selector (p. ej. el <select> de
+// skin): evita que KeyM/KeyP/KeyC u otros atajos disparen mientras se está usando un control.
+function isTyping(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || el.isContentEditable;
+}
+
+// Color de un índice de pieza según la skin activa (ver SKINS más abajo). Usado tanto por el
+// render (drawCell* de cada skin) como por el color de partículas/flashes en clearLines()/
+// zapBottomRow(), para que estos no se queden pegados a la paleta Retro bajo otra skin.
+function pieceColor(i) {
+  return (SKINS[skin] || SKINS[DEFAULT_SKIN]).colors[i];
+}
+
 function makePiece(type) {
   const shape = PIECES[type].map(row => [...row]);
   return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
@@ -455,7 +474,7 @@ function clearLines(neutralTurn) {
 
     clearedRows.forEach(({ row, colors }) => {
       flashes.push({ row, t: 0 });
-      const midColor = COLORS[colors[Math.floor(COLS / 2)]] || cssVar('--combo-color', '#ffb300');
+      const midColor = pieceColor(colors[Math.floor(COLS / 2)]) || cssVar('--combo-color', '#ffb300');
       spawnLineParticles(row, midColor);
     });
 
@@ -587,7 +606,7 @@ function zapBottomRow() {
   dropInterval = Math.max(100, 1000 - (level - 1) * 90);
 
   flashes.push({ row, t: 0 });
-  spawnLineParticles(row, COLORS[colors[Math.floor(COLS / 2)]] || cssVar('--energy-ready', '#4dd0e1'));
+  spawnLineParticles(row, pieceColor(colors[Math.floor(COLS / 2)]) || cssVar('--energy-ready', '#4dd0e1'));
   energyFx = { t: 0 };
   shakeScreen(SHAKE_ZAP.mag, SHAKE_ZAP.dur);
   SFX.zap();
@@ -665,17 +684,136 @@ function updateTimer() {
   timerSection.classList.toggle('timer-critical', timeLeft <= CHALLENGE_CRITICAL_MS);
 }
 
-function drawBlock(context, x, y, colorIndex, size, alpha) {
-  if (!colorIndex) return;
-  if (colorIndex === BOMB) { drawBomb(context, x, y, size, alpha); return; }
-  const color = COLORS[colorIndex];
+// ---------------------------------------------------------------------------
+// Skins: cada una es una paleta (paralela a COLORS, mismos índices) + una función que
+// pinta una celda 1x1. drawBlock() de más abajo solo hace de despachador; el resto del
+// renderizado (drawBomb/drawNutHole/drawGrid/ghost/current piece…) no cambia por skin.
+// ---------------------------------------------------------------------------
+
+const NEON_COLORS = [
+  null,
+  '#00e5ff', // I
+  '#ffee58', // O
+  '#e040fb', // T
+  '#69f0ae', // S
+  '#ff1744', // Z
+  '#40c4ff', // J
+  '#ff9100', // L
+  '#b0bec5', // NUT
+  '#37474f', // BOMB - drawBomb() pinta su propio arte, este valor no se usa para rellenar
+];
+
+const PASTEL_COLORS = [
+  null,
+  '#a8dde6', // I
+  '#fff2b2', // O
+  '#dcb8e6', // T
+  '#bfe6c2', // S
+  '#f3b8ba', // Z
+  '#cfe0f7', // J
+  '#f7d3ad', // L
+  '#cfd3d8', // NUT
+  '#37474f', // BOMB
+];
+
+// Retro: el pintado plano de siempre (rectángulo + highlight superior).
+function drawCellRetro(context, x, y, colorIndex, size, alpha) {
   context.globalAlpha = alpha ?? 1;
-  context.fillStyle = color;
+  context.fillStyle = pieceColor(colorIndex);
   context.fillRect(x * size + 1, y * size + 1, size - 2, size - 2);
-  // highlight
   context.fillStyle = 'rgba(255,255,255,0.12)';
   context.fillRect(x * size + 1, y * size + 1, size - 2, 4);
   context.globalAlpha = 1;
+}
+
+// Neon: relleno oscuro translúcido + contorno brillante con shadowBlur. save()/restore()
+// porque shadowBlur/shadowColor no deben filtrarse al resto de draw() (partículas, banner…).
+function drawCellNeon(context, x, y, colorIndex, size, alpha) {
+  const color = pieceColor(colorIndex);
+  const px = x * size, py = y * size;
+  context.save();
+  context.globalAlpha = alpha ?? 1;
+  context.fillStyle = 'rgba(8,10,16,0.65)';
+  context.fillRect(px + 1, py + 1, size - 2, size - 2);
+  context.shadowColor = color;
+  context.shadowBlur = size * 0.45;
+  context.strokeStyle = color;
+  context.lineWidth = Math.max(1.5, size * 0.08);
+  context.strokeRect(px + 2.5, py + 2.5, size - 5, size - 5);
+  context.shadowBlur = 0;
+  context.globalAlpha = (alpha ?? 1) * 0.3;
+  context.fillStyle = color;
+  context.fillRect(px + 3, py + 3, size - 6, size - 6);
+  context.restore();
+}
+
+// Esquinas redondeadas con fallback manual: ctx.roundRect() es reciente y no está garantizado.
+function roundedRectPath(context, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  context.beginPath();
+  if (context.roundRect) {
+    context.roundRect(x, y, w, h, rr);
+  } else {
+    context.moveTo(x + rr, y);
+    context.arcTo(x + w, y, x + w, y + h, rr);
+    context.arcTo(x + w, y + h, x, y + h, rr);
+    context.arcTo(x, y + h, x, y, rr);
+    context.arcTo(x, y, x + w, y, rr);
+    context.closePath();
+  }
+}
+
+// Pastel: paleta desaturada (PASTEL_COLORS) + esquinas redondeadas.
+function drawCellPastel(context, x, y, colorIndex, size, alpha) {
+  const color = pieceColor(colorIndex);
+  context.globalAlpha = alpha ?? 1;
+  roundedRectPath(context, x * size + 1.5, y * size + 1.5, size - 3, size - 3, size * 0.22);
+  context.fillStyle = color;
+  context.fill();
+  roundedRectPath(context, x * size + 1.5, y * size + 1.5, size - 3, (size - 3) * 0.4, size * 0.22);
+  context.fillStyle = 'rgba(255,255,255,0.45)';
+  context.fill();
+  context.globalAlpha = 1;
+}
+
+// Pixel art: relleno plano + rejilla de dithering. El patrón depende solo de (x, y, tamaño de
+// grilla) — nunca de Math.random()/animClock — para que sea idéntico en cada frame y el
+// tablero no "parpadee".
+function drawCellPixel(context, x, y, colorIndex, size, alpha) {
+  const color = pieceColor(colorIndex);
+  const px = x * size, py = y * size;
+  context.globalAlpha = alpha ?? 1;
+  context.fillStyle = color;
+  context.fillRect(px + 1, py + 1, size - 2, size - 2);
+  const n = 4; // subdivisiones por lado
+  const step = (size - 2) / n;
+  context.fillStyle = 'rgba(0,0,0,0.18)';
+  for (let ry = 0; ry < n; ry++) {
+    for (let rx = 0; rx < n; rx++) {
+      // tablero de ajedrez desplazado por la posición de la celda en el tablero, para que
+      // piezas vecinas no compartan fase
+      if (((rx + ry + x + y) & 1) === 0) {
+        context.fillRect(px + 1 + rx * step, py + 1 + ry * step, step, step);
+      }
+    }
+  }
+  context.strokeStyle = 'rgba(0,0,0,0.4)';
+  context.lineWidth = 1;
+  context.strokeRect(px + 1.5, py + 1.5, size - 3, size - 3);
+  context.globalAlpha = 1;
+}
+
+const SKINS = {
+  retro: { label: 'Retro', colors: COLORS, drawCell: drawCellRetro },
+  neon: { label: 'Neon', colors: NEON_COLORS, drawCell: drawCellNeon },
+  pastel: { label: 'Pastel', colors: PASTEL_COLORS, drawCell: drawCellPastel },
+  pixel: { label: 'Pixel art', colors: COLORS, drawCell: drawCellPixel },
+};
+
+function drawBlock(context, x, y, colorIndex, size, alpha) {
+  if (!colorIndex) return;
+  if (colorIndex === BOMB) { drawBomb(context, x, y, size, alpha); return; }
+  (SKINS[skin] || SKINS[DEFAULT_SKIN]).drawCell(context, x, y, colorIndex, size, alpha);
 }
 
 function drawBomb(context, x, y, size, alpha) {
@@ -1025,6 +1163,7 @@ function init() {
 }
 
 document.addEventListener('keydown', e => {
+  if (isTyping(e.target)) return; // no interceptar mientras se usa el <select> de skin u otro control
   unlockAudio(); // toda tecla es un gesto de usuario válido para desbloquear el audio
   if (e.code === 'KeyM') { setMuted(!muted); return; } // funciona incluso en pausa/game-over, como KeyP
   if (e.code === 'KeyP') { togglePause(); return; }
@@ -1103,7 +1242,64 @@ modeToggle.addEventListener('click', () => {
   toggleMode();
 });
 
+// ---------------------------------------------------------------------------
+// Aplicar/persistir la skin activa. Repinta explícitamente (draw()+drawNext()): el loop()
+// puede estar parado (pausa, game over) y sin esto el cambio no se vería hasta que
+// la pieza se mueva de nuevo.
+// ---------------------------------------------------------------------------
+
+function populateSkinSelect(selectEl) {
+  selectEl.innerHTML = '';
+  for (const key in SKINS) {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = SKINS[key].label;
+    selectEl.appendChild(opt);
+  }
+}
+
+function applySkin(s) {
+  skin = SKINS[s] ? s : DEFAULT_SKIN;
+  document.documentElement.setAttribute('data-skin', skin);
+  for (const key in cssVarCache) delete cssVarCache[key]; // el fondo/grid del tablero cambian con la skin
+  skinSelect.value = skin;
+  localStorage.setItem(SKIN_STORAGE_KEY, skin);
+  draw();
+  drawNext();
+}
+
+function initSkin() {
+  populateSkinSelect(skinSelect);
+  const saved = localStorage.getItem(SKIN_STORAGE_KEY);
+  applySkin(SKINS[saved] ? saved : DEFAULT_SKIN);
+}
+
+skinSelect.addEventListener('change', () => {
+  unlockAudio();
+  applySkin(skinSelect.value);
+  skinSelect.blur(); // si no, el <select> conserva el foco y el guard isTyping() del keydown
+                      // seguiría bloqueando las teclas del juego (flechas, Space, M, P...)
+});
+
+// Todo el estado que draw()/drawNext() puede tocar debe existir ya antes de que initSkin()
+// repinte al aplicar la skin guardada, lo cual ocurre antes del init() real de más abajo.
+// gameOver = true hace que draw() se detenga en su guard temprano sin necesitar `current`;
+// next necesita ser una pieza válida para que drawNext() no falle. init() sobrescribe todo
+// esto segundos después, así que es inofensivo.
+board = createBoard();
+holes = createBoard();
+particles = [];
+flashes = [];
+banner = null;
+shake = null;
+comboFx = null;
+blast = null;
+energyFx = null;
+gameOver = true;
+next = randomPiece();
+
 initTheme();
 initSound();
 initMode();
+initSkin();
 init();
