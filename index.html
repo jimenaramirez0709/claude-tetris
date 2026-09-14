@@ -97,9 +97,45 @@
 
     <div id="overlay" class="overlay hidden">
       <div class="overlay-box">
-        <p id="overlay-title">GAME OVER</p>
-        <p id="overlay-score"></p>
-        <button id="restart-btn">Reiniciar</button>
+
+        <!-- Pantalla de inicio: records + selector de modo antes de la primera partida -->
+        <div class="overlay-panel" id="panel-start">
+          <p class="overlay-heading">TETRIS</p>
+          <div class="records-box">
+            <p class="records-title">TOP 5 · <span id="start-records-mode">CLÁSICO</span></p>
+            <ol id="start-records-list" class="records-list"></ol>
+            <p class="records-best">Mejor combo: <span id="start-best-combo">x0</span> · Máx. líneas: <span id="start-best-lines">0</span></p>
+          </div>
+          <div class="menu-row">
+            <label class="menu-label" for="start-mode-select">Modo</label>
+            <select id="start-mode-select" class="menu-select">
+              <option value="classic">Clásico</option>
+              <option value="challenge">Desafío (40 líneas / 2 min)</option>
+            </select>
+          </div>
+          <button id="play-btn" class="menu-btn menu-btn-primary">JUGAR</button>
+          <button id="start-reset-records-btn" class="menu-btn menu-btn-danger">Reiniciar records</button>
+        </div>
+
+        <!-- Game over / fin de desafío, con la tabla de records -->
+        <div class="overlay-panel hidden" id="panel-result">
+          <p id="overlay-title">GAME OVER</p>
+          <p id="overlay-score"></p>
+          <div id="new-record-box" class="new-record-box hidden">
+            <p id="new-record-text">¡Entras en el top 5!</p>
+            <form id="new-record-form">
+              <input id="player-name-input" class="name-input" maxlength="8" autocomplete="off" placeholder="TU NOMBRE" />
+              <button type="submit" class="menu-btn menu-btn-primary">Guardar</button>
+            </form>
+          </div>
+          <div class="records-box">
+            <p class="records-title">TOP 5</p>
+            <ol id="result-records-list" class="records-list"></ol>
+            <p class="records-best">Mejor combo: <span id="result-best-combo">x0</span> · Máx. líneas: <span id="result-best-lines">0</span></p>
+          </div>
+          <button id="restart-btn">Reiniciar</button>
+        </div>
+
       </div>
     </div>
   </div>

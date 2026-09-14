@@ -43,6 +43,8 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Modo desafío**: limpia 40 líneas en 2 minutos antes de que se acabe el tiempo. Se activa con el botón de modo del HUD o la tecla `C`; el modo clásico (infinito) sigue siendo el predeterminado.
 - **Pausa** y **Game Over** (o victoria/derrota del desafío) con opción de reinicio.
+- **Pantalla de inicio** con el top-5 de puntuaciones, el mejor combo y el máximo de líneas conseguidos, un selector de modo y el botón JUGAR — se muestra antes de la primera partida, en vez de arrancar a jugar directamente.
+- **Records locales**: un top-5 por modo (clásico y desafío llevan tablas separadas), guardado en `localStorage`; la pantalla de Game Over/resultado del desafío también los muestra, y pide el nombre del jugador cuando la partida entra en el top-5.
 
 ---
 
@@ -149,6 +151,16 @@ Junto al toggle de tema y sonido hay un tercer botón (o la tecla `C`) para alte
 - Cerca del final, `TIME` cambia de color como aviso y luego parpadea en rojo.
 - Al llegar a 40 líneas aparece un overlay de victoria con el tiempo empleado; si el reloj llega a 0 antes, aparece un overlay de derrota con las líneas conseguidas. Ambos tienen botón de reinicio.
 - El modo elegido se recuerda entre sesiones (`localStorage`).
+
+### Pantalla de inicio y records locales
+
+Al cargar la página aparece una pantalla de inicio en vez de arrancar una partida directamente: muestra el título, el top-5 de puntuaciones del modo activo, el mejor combo y el máximo de líneas conseguidos alguna vez, un selector de modo y el botón **JUGAR**.
+
+- **Top-5 por modo**: clásico y desafío llevan tablas separadas (`localStorage`), cada una con nombre, puntuación, nivel y líneas de la partida.
+- **Mejor combo / máx. líneas**: se guardan siempre que se superan, incluso en una partida que no llega a entrar en el top-5.
+- **Formulario de nombre**: al terminar una partida (Game Over o fin del desafío) que entra en el top-5, aparece un campo para escribir el nombre (hasta 8 caracteres); se recuerda el último nombre usado.
+- **Reiniciar records**: un botón en la pantalla de inicio borra todas las tablas guardadas, con confirmación previa.
+- Cambiar de modo desde la pantalla de inicio solo refresca sus records (no arranca una partida); cambiarlo durante una partida la reinicia, como antes.
 
 ---
 
