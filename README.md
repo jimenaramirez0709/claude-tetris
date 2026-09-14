@@ -85,7 +85,7 @@ Después abre `http://localhost:8000` en el navegador.
 | `↑` o `X` | Rotar la pieza en sentido horario |
 | `↓`       | Soft drop (bajar más rápido)      |
 | `Espacio` | Hard drop (caída instantánea)     |
-| `P`       | Pausar / reanudar                 |
+| `P` / `Esc` | Pausar / reanudar (abre el menú de pausa) |
 | `M`       | Silenciar / activar sonido        |
 | `C`       | Cambiar entre modo clásico y modo desafío |
 
@@ -149,6 +149,15 @@ Junto al toggle de tema y sonido hay un tercer botón (o la tecla `C`) para alte
 - Cerca del final, `TIME` cambia de color como aviso y luego parpadea en rojo.
 - Al llegar a 40 líneas aparece un overlay de victoria con el tiempo empleado; si el reloj llega a 0 antes, aparece un overlay de derrota con las líneas conseguidas. Ambos tienen botón de reinicio.
 - El modo elegido se recuerda entre sesiones (`localStorage`).
+
+### Menú de pausa
+
+`P` o `Esc` abren un menú de pausa real (antes solo mostraba el texto "PAUSA"):
+
+- **Reanudar** cierra el menú y continúa la partida. Justo después de reanudar se ignora brevemente cualquier tecla de movimiento (para que la misma pulsación, o su auto-repetición, no mueva la pieza al instante).
+- **Reiniciar** empieza una partida nueva sin salir del menú.
+- **Ver controles** muestra la lista completa de teclas; **Volver** regresa al menú de pausa.
+- Un selector de **nivel inicial** (1–15) fija con qué nivel arranca la próxima partida; se recuerda entre sesiones (`localStorage`) y ya no se resetea a 1 al limpiar líneas.
 
 ---
 

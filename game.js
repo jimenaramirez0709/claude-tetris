@@ -69,6 +69,14 @@ const CHALLENGE_TIME_MS = 120000;        // 2 minutos
 const CHALLENGE_WARN_MS = 30000;         // umbral de aviso en el HUD
 const CHALLENGE_CRITICAL_MS = 10000;     // umbral crítico en el HUD
 
+// ---- Nivel inicial configurable (menú de pausa) ----
+const START_LEVEL_STORAGE_KEY = 'tetris-start-level';
+const START_LEVEL_MIN = 1;
+const START_LEVEL_MAX = 15;
+
+// ---- Bloqueo de inputs tras cerrar el menú de pausa ----
+const INPUT_LOCK_MS = 120; // evita que el mismo evento que reanuda mueva/gire/suelte la pieza
+
 const canvas = document.getElementById('board');
 const ctx = canvas.getContext('2d');
 const nextCanvas = document.getElementById('next-canvas');
@@ -93,6 +101,16 @@ const timerSection = document.getElementById('timer-section');
 const energySection = document.getElementById('energy-section');
 const energyFillEl = document.getElementById('energy-fill');
 
+// ---- Paneles del overlay (pausa / controles / resultado) ----
+const panelPause = document.getElementById('panel-pause');
+const panelControls = document.getElementById('panel-controls');
+const panelResult = document.getElementById('panel-result');
+const resumeBtn = document.getElementById('resume-btn');
+const pauseRestartBtn = document.getElementById('pause-restart-btn');
+const showControlsBtn = document.getElementById('show-controls-btn');
+const backToPauseBtn = document.getElementById('back-to-pause-btn');
+const pauseLevelSelect = document.getElementById('pause-level-select');
+
 const THEME_STORAGE_KEY = 'tetris-theme';
 
 let board, holes, current, next, score, lines, level, paused, gameOver, lastTime, dropAccum, dropInterval, animId;
@@ -100,6 +118,11 @@ let linesUntilBomb, blast, animClock;
 let combo, comboFx;
 let energy, energyReady, energyFx, lastEnergyPct;
 let mode, timeLeft, challengeWon, lastTimerText;
+let startLevel;     // nivel con el que arranca la próxima partida (elegido en el menú de pausa)
+let runStartLevel;  // copia congelada de startLevel al llamar a init(): así cambiar el selector a
+                     // mitad de partida (p. ej. desde el menú de pausa, sin reiniciar) no altera
+                     // retroactivamente el nivel/velocidad de la partida ya en curso
+let inputLockUntil; // performance.now() hasta el que se ignoran mover/rotar/soltar (tras cerrar la pausa)
 
 // ---- Efectos visuales (solo render: nunca participan en colisiones ni puntuación) ----
 let particles;  // [] { x, y, vx, vy, life, maxLife, color, size }
@@ -360,6 +383,27 @@ function bombInterval() {
   return BOMB_MIN_LINES + Math.floor(Math.random() * (BOMB_MAX_LINES - BOMB_MIN_LINES + 1));
 }
 
+// El nivel es runStartLevel (congelado al arrancar la partida) + lo ganado por líneas limpiadas —
+// nunca se resetea a 1 al recalcularse, y tampoco salta a mitad de partida si se cambia el
+// selector de nivel inicial desde el menú de pausa sin reiniciar (eso solo afecta a `startLevel`,
+// que no se lee de nuevo hasta el próximo init()).
+function levelFromLines(n) {
+  return runStartLevel + Math.floor(n / 10);
+}
+
+function dropIntervalForLevel(l) {
+  return Math.max(100, 1000 - (l - 1) * 90);
+}
+
+// true si el evento de teclado viene de un campo de texto/selector (p. ej. el <select> de
+// nivel inicial del menú de pausa): evita que KeyM/KeyP/KeyC u otros atajos disparen mientras
+// se está interactuando con ese control.
+function isTyping(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || el.isContentEditable;
+}
+
 function makePiece(type) {
   const shape = PIECES[type].map(row => [...row]);
   return { type, shape, x: Math.floor(COLS / 2) - Math.floor(shape[0].length / 2), y: 0 };
@@ -445,8 +489,8 @@ function clearLines(neutralTurn) {
     lines += cleared;
     linesUntilBomb -= cleared;
     score += (LINE_SCORES[cleared] || 0) * level * comboMultiplier();
-    level = Math.floor(lines / 10) + 1;
-    dropInterval = Math.max(100, 1000 - (level - 1) * 90);
+    level = levelFromLines(lines);
+    dropInterval = dropIntervalForLevel(level);
 
     if (!energyReady) {
       energy = Math.min(ENERGY_MAX, energy + (ENERGY_GAIN[cleared] || ENERGY_GAIN[4]));
@@ -583,8 +627,8 @@ function zapBottomRow() {
   const prevLevel = level;
   score += destroyed * BOMB_BLOCK_SCORE * level;
   lines += 1;
-  level = Math.floor(lines / 10) + 1;
-  dropInterval = Math.max(100, 1000 - (level - 1) * 90);
+  level = levelFromLines(lines);
+  dropInterval = dropIntervalForLevel(level);
 
   flashes.push({ row, t: 0 });
   spawnLineParticles(row, COLORS[colors[Math.floor(COLS / 2)]] || cssVar('--energy-ready', '#4dd0e1'));
@@ -941,15 +985,32 @@ function finishChallenge(won) {
   updateTimer();
 }
 
+// Conmuta qué panel se ve dentro del overlay: 'pause' (menú de pausa) | 'controls' (lista de
+// controles) | null (oculta el overlay entero). panel-result sigue su propio ciclo de vida sin
+// cambios (showOverlay()/endGame()/finishChallenge() sólo tocan #overlay, nunca panel-result), así
+// que aquí se le devuelve su estado por defecto (visible) cada vez que se oculta pausa/controles
+// para que la próxima llamada a showOverlay() lo encuentre listo.
+function showLocalPanel(name) {
+  panelPause.classList.toggle('hidden', name !== 'pause');
+  panelControls.classList.toggle('hidden', name !== 'controls');
+  panelResult.classList.toggle('hidden', name === 'pause' || name === 'controls');
+  overlay.classList.toggle('hidden', !name);
+}
+
 function togglePause() {
   if (gameOver) return;
   paused = !paused;
   if (!paused) {
+    showLocalPanel(null);
+    // el mismo evento (P/Esc/click en "Reanudar", o su auto-repetición si se mantenía pulsado)
+    // que acaba de cerrar el menú no debe además mover/rotar/soltar la pieza
+    inputLockUntil = performance.now() + INPUT_LOCK_MS;
     lastTime = performance.now();
     loop(lastTime);
   } else {
     cancelAnimationFrame(animId);
-    showOverlay('PAUSA', '', false);
+    pauseLevelSelect.value = startLevel;
+    showLocalPanel('pause');
   }
 }
 
@@ -993,12 +1054,15 @@ function init() {
   holes = createBoard();
   score = 0;
   lines = 0;
-  level = 1;
+  runStartLevel = startLevel; // congela el nivel inicial de ESTA partida: cambiar el selector
+                               // de pausa después ya no puede alterar retroactivamente esta run
+  level = levelFromLines(lines); // = runStartLevel
   paused = false;
   gameOver = false;
-  dropInterval = 1000;
+  dropInterval = dropIntervalForLevel(level);
   dropAccum = 0;
   lastTime = performance.now();
+  inputLockUntil = performance.now() + INPUT_LOCK_MS; // por si se mantenía una tecla pulsada al reiniciar
   linesUntilBomb = bombInterval();
   blast = null;
   animClock = 0;
@@ -1019,17 +1083,23 @@ function init() {
   spawn();
   updateHUD();
   updateTimer();
-  overlay.classList.add('hidden');
+  showLocalPanel(null); // oculta el overlay entero y deja panel-result listo para la próxima vez
   cancelAnimationFrame(animId);
   animId = requestAnimationFrame(loop);
 }
 
 document.addEventListener('keydown', e => {
   unlockAudio(); // toda tecla es un gesto de usuario válido para desbloquear el audio
+  // Escape/P deben poder cerrar el menú de pausa aunque el foco siga en el <select> de nivel
+  // (p. ej. justo después de elegir un valor) — por eso se comprueban ANTES que isTyping().
+  if (e.code === 'KeyP' || e.code === 'Escape') { e.preventDefault(); togglePause(); return; }
+  if (isTyping(e.target)) return; // no interceptar mientras se usa el <select> de nivel del menú de pausa
   if (e.code === 'KeyM') { setMuted(!muted); return; } // funciona incluso en pausa/game-over, como KeyP
-  if (e.code === 'KeyP') { togglePause(); return; }
   if (e.code === 'KeyC') { toggleMode(); return; }
   if (paused || gameOver) return;
+  // evita que la misma pulsación (o su auto-repetición si se mantiene pulsada) que acaba de
+  // cerrar el menú de pausa mueva/gire/suelte la pieza nada más reanudar
+  if (performance.now() < inputLockUntil) return;
   switch (e.code) {
     case 'ArrowLeft':
       if (!collide(current.shape, current.x - 1, current.y)) { current.x--; SFX.move(); }
@@ -1103,7 +1173,41 @@ modeToggle.addEventListener('click', () => {
   toggleMode();
 });
 
+// ---------------------------------------------------------------------------
+// Nivel inicial: seleccionable desde el menú de pausa. Es un ajuste para "la
+// próxima partida" (persistido en localStorage), no algo que reinicie la actual.
+// ---------------------------------------------------------------------------
+
+function populateLevelSelect(selectEl) {
+  selectEl.innerHTML = '';
+  for (let l = START_LEVEL_MIN; l <= START_LEVEL_MAX; l++) {
+    const opt = document.createElement('option');
+    opt.value = l;
+    opt.textContent = l;
+    selectEl.appendChild(opt);
+  }
+}
+
+function setStartLevel(l) {
+  startLevel = Math.min(START_LEVEL_MAX, Math.max(START_LEVEL_MIN, Math.floor(l) || START_LEVEL_MIN));
+  localStorage.setItem(START_LEVEL_STORAGE_KEY, String(startLevel));
+  pauseLevelSelect.value = startLevel;
+}
+
+function initStartLevel() {
+  const saved = parseInt(localStorage.getItem(START_LEVEL_STORAGE_KEY), 10);
+  populateLevelSelect(pauseLevelSelect);
+  setStartLevel(Number.isFinite(saved) ? saved : START_LEVEL_MIN);
+}
+
+resumeBtn.addEventListener('click', () => { unlockAudio(); resumeBtn.blur(); togglePause(); });
+pauseRestartBtn.addEventListener('click', () => { unlockAudio(); pauseRestartBtn.blur(); init(); });
+showControlsBtn.addEventListener('click', () => { showControlsBtn.blur(); showLocalPanel('controls'); });
+backToPauseBtn.addEventListener('click', () => { backToPauseBtn.blur(); showLocalPanel('pause'); });
+pauseLevelSelect.addEventListener('change', () => setStartLevel(parseInt(pauseLevelSelect.value, 10)));
+
 initTheme();
 initSound();
 initMode();
+initStartLevel();
 init();
