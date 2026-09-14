@@ -42,6 +42,7 @@ Es una versión jugable del Tetris clásico con todas las mecánicas que esperar
 - **Sistema de puntuación** clásico de Tetris (100 / 300 / 500 / 800 multiplicado por nivel).
 - **Niveles** que aumentan cada 10 líneas y aceleran la caída.
 - **Modo desafío**: limpia 40 líneas en 2 minutos antes de que se acabe el tiempo. Se activa con el botón de modo del HUD o la tecla `C`; el modo clásico (infinito) sigue siendo el predeterminado.
+- **Skins visuales**: 4 estilos de bloque intercambiables en vivo (Retro, Neon, Pastel, Pixel art) desde un selector del panel lateral.
 - **Pausa** y **Game Over** (o victoria/derrota del desafío) con opción de reinicio.
 
 ---
@@ -149,6 +150,10 @@ Junto al toggle de tema y sonido hay un tercer botón (o la tecla `C`) para alte
 - Cerca del final, `TIME` cambia de color como aviso y luego parpadea en rojo.
 - Al llegar a 40 líneas aparece un overlay de victoria con el tiempo empleado; si el reloj llega a 0 antes, aparece un overlay de derrota con las líneas conseguidas. Ambos tienen botón de reinicio.
 - El modo elegido se recuerda entre sesiones (`localStorage`).
+
+### Skins visuales
+
+Un selector `SKIN` en el panel lateral cambia, sin recargar la página, cómo se dibuja cada bloque: **Retro** (el rectángulo plano de siempre), **Neon** (brillo oscuro con `shadowBlur`), **Pastel** (paleta desaturada + esquinas redondeadas) y **Pixel art** (relleno plano + una rejilla de dithering determinista, sin parpadeos). La skin elegida se recuerda entre sesiones (`localStorage`).
 
 ---
 

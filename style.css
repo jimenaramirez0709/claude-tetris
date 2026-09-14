@@ -64,6 +64,24 @@
   --energy-ready: #0097a7;
 }
 
+/* ---- Skins visuales: solo redefinen el fondo/rejilla del tablero (el resto del cromo de
+   la página lo sigue controlando el tema claro/oscuro de arriba, son ejes independientes).
+   El color de cada pieza lo maneja SKINS en game.js, no CSS. ---- */
+[data-skin="neon"] {
+  --board-bg: #05070d;
+  --grid-line: #101830;
+}
+
+[data-skin="pastel"] {
+  --board-bg: #fbf7f0;
+  --grid-line: #ece3d8;
+}
+
+[data-skin="pixel"] {
+  --board-bg: #16130f;
+  --grid-line: #2a241a;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -236,6 +254,16 @@ body {
   font-weight: 700;
   color: var(--value-color);
   letter-spacing: 1px;
+}
+
+.menu-select {
+  background: var(--kbd-bg);
+  color: var(--text);
+  border: 1px solid var(--kbd-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 13px;
+  font-family: inherit;
 }
 
 #combo-section .value {
